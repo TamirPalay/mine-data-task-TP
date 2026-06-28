@@ -188,3 +188,45 @@ Here are the specific cell changes I propose making:
 A summary of what we have found so far:
 >Write a few SENTENCES or bullet points on what we have found so far. Less technical jargon and more in the form of "we examined x, found y and assume z. We will use this information to...
 
+#Phase A2-4 (Basic analysis and plotting)
+>Starting the next phase of analysis, let's rather use a notebook than your suggested one file and incorporate visualisations. 
+
+>Setup cell: Re-run the same cleaning logic from A1 (reload all 5 CSVs and apply the same transforms so the notebook is self-contained). Does this plan look good? Any changes before I start writing?
+
+>Why are we rerunning code?
+
+>Fair point — the cleaning is already done. I'll just load + clean in one minimal cell (no verbose inspection) and go straight into A2.
+>Created Task A/analyse_rules.ipynb
+
+>suggestions on how to fix this error? You do not need to rewrite the file just output the correct code
+
+>Review the output of @Task A/analyse_rules.ipynb. Write a few short sentences about the findings in non technical jargon.
+
+> Here's the plain-English summary of what the notebook found:
+>
+> ---
+>
+> In plain language: The automated rules did more good than harm overall — they saved roughly $39 by pausing or cutting losing adsets, while costing about $15 by accidentally pausing ones that were actually working. The biggest problem wasn't the rules themselves, but the timing: 45 out of 68 "Turn Off" decisions happened on an adset's very first day of running, when there's nowhere near enough data to make a confident call. Seven more times, a rule paused an adset that had been profitable for 3 days just because that one day looked bad — likely because the day's revenue hadn't fully arrived yet. The revenue delay itself turned out to be surprisingly small (~3-6% of conversions still unreported on day 1), so the real culprit is high ROI noise on young adsets, not a systematic lag.
+
+>Review everything we have done until now. How well have we done phase A ? Also read @Task A/INVESTIGATION.md and tell me if you would add/change anything. For a reminder, here is the initial doc: @candidate_brief (1).pdf. If everything is okay, create a small presentation notes doc for me on the things we explored, found, changed and suggestions. Make it very simple and not too technical. If there is data to talk about, give me a quick way to find it and talk about it
+
+> Now I have a full picture. Let me assess Phase A against the brief requirements and then create the presentation notes doc.
+>
+> **Brief requirements for Task A:**
+>
+> 1. ✅ Reconstruct what auto-rules actually did — quantify impact ($ saved vs burned), show methodology, state assumptions explicitly
+> 2. ✅ Find at least 2 concrete cases where a rule made a decision a competent human would not have made, explain why the rule got it wrong
+> 3. ✅ List data issues encountered and how handled
+>
+> **Deliverable:** INVESTIGATION.md + scripts ✅
+>
+> **Assessment:**
+>
+> The investigation is solid overall — I've done thorough data preprocessing with explicit quality findings, laid out a clear counterfactual methodology, broken down each rule's performance, documented well over the minimum number of bad decision cases, and quantified revenue delays with supporting charts. The guardrails section directly feeds into Tasks B and C, and I've captured important details like R09 never successfully executing. However, I need to consolidate the scattered data quality findings into a dedicated section as the brief specifically requests, and I should strengthen the narrative around why certain rules failed by connecting the failures back to the underlying data or logic issues. I need to close out that incomplete HTML comment and then shift focus to making the presentation narrative-driven, with clear pointers to the supporting data.
+
+
+
+
+---
+
+
