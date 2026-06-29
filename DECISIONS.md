@@ -1,3 +1,41 @@
+# Key Decisions Log
+
+A summary of significant moments where I directed, corrected, or overruled the AI throughout the project.
+
+---
+
+## Task A
+
+**Notebooks over scripts (my call)**
+Claude proposed single `.py` files for exploration and analysis. I redirected to Jupyter notebooks — each output directly informs the next cleaning step, which is much cleaner to review and present than a wall of terminal output. Claude agreed once I explained it.
+
+**Caught null and format errors Claude missed**
+After running `explore_data.ipynb`, I flagged that some nulls hadn't been handled and there were format errors in the output cells. Claude had marked the data as "ready" prematurely. I pushed back and got it to add specific fix cells before moving on.
+
+**Decided to proceed before fixing buyer_actions IDs**
+Claude wanted to fix the buyer_actions ID corruption in the notebook before moving to INVESTIGATION.md. I overruled this — the rule impact analysis only needed `execs_dedup` and `perf_clean`, both of which were clean. I decided to document the bug as a data quality finding and fix it properly in Task C where it actually mattered.
+
+---
+
+## Task B
+
+**Rejected the two-model escalation path**
+The original brief suggested using an expensive model (Sonnet) for escalations. Claude initially included this. After discussion, I agreed with Claude's argument that genuinely ambiguous cases should go to a human, not a bigger model — a human with context is better than Sonnet on bad data. One model (Haiku) only. This was a joint decision but I made the final call.
+
+---
+
+## Task C
+
+**Chose Option B over Claude's recommendation**
+Claude recommended Option A (all adsets with spend > 0 on any of the last 3 dates) as "more realistic." I chose Option B (ACTIVE in metadata AND spend > 0 on that specific date) because it's cleaner and more defensible. Claude implemented what I asked.
+
+**Decided not to run further experiments**
+After seeing the 92.8% escalation rate, I asked if it was worth switching to the suggested option A and we determined the results were not a coding error but a lack of data error and would be very similar either way.
+
+---
+
+# Full Session Log
+
 # Step 0: Prepare Claude for an extended session
 With this prompt, I use Cluade to create a structure for the project. I also set up a canary to let me know when to switch sessions. 
 I also get claude to give me a structured plan as a prompt so that I can restart from any point. I also tell it how it should reply to me and what decisions it should make.
@@ -646,3 +684,5 @@ Yes your plan looks good. And I agree we do not need an "expensive model". One s
 > If you want to see the agent perform more meaningfully right now without more data, the higher-impact change would be relaxing the `recent_human_action` gate — for example, only blocking if the buyer made an isolated single-adset edit (deliberate decision) rather than a batch session touching 200+ adsets at once. That would unblock the majority of the Jun 10 and Jun 11 adsets.
 
 
+
+>Lastly, look at @DECISIONS.md and add a short section at the top according to the section in @candidate_brief (1).pdf. DO NOT CHANGE ANY OTHER CONTENT. Just add a small section at the top about key decisions. Eg "Claude wanted single files and I thought notebooks would be a better idea"
