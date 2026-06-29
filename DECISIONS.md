@@ -225,8 +225,202 @@ A summary of what we have found so far:
 > The investigation is solid overall — I've done thorough data preprocessing with explicit quality findings, laid out a clear counterfactual methodology, broken down each rule's performance, documented well over the minimum number of bad decision cases, and quantified revenue delays with supporting charts. The guardrails section directly feeds into Tasks B and C, and I've captured important details like R09 never successfully executing. However, I need to consolidate the scattered data quality findings into a dedicated section as the brief specifically requests, and I should strengthen the narrative around why certain rules failed by connecting the failures back to the underlying data or logic issues. I need to close out that incomplete HTML comment and then shift focus to making the presentation narrative-driven, with clear pointers to the supporting data.
 
 
+# Task B
+
+>Based on this session brief, the instructions in @candidate_brief (1).pdf and the output from Task A (Read @Task A/analyse_rules.ipynb , @Task A/INVESTIGATION.md and @Task A/PRESENTATION_NOTES.md ), let's move on to task B. First, reflect. How would YOU design the system according to the requirements?
+
+> **My Honest Design Reflection**
+>
+> Before walking through the steps, here's how I'd actually approach this given what Task A taught us.
+>
+> The core tension the system has to solve: the existing rules are too fast and too blind. They fire every 30 minutes on incomplete data and have no memory of what they did yesterday. An agent that just replaces the rules with an LLM making the same decisions at the same speed would fail the same way. The fix isn't speed — it's judgment about when to act.
+>
+> Here's how I'd build it:
+>
+> **My design choices (and why)**
+>
+> **1. Keep the 30-min polling — but separate "check" from "act"**
+> The rules poll every 30 min and act immediately. I'd keep the 30-min poll as a lightweight scan (no LLM, just numbers), but only escalate to the judgment layer when something genuinely needs attention. Most cycles, most adsets: do nothing.
+>
+> **2. Hard data gate before anything else**
+> Task A showed 45/68 Turn Off decisions happened on day 1–2. The first thing the system checks — before any LLM call — is: "does this adset have enough history?" If not, it's off-limits. No LLM call, no action. This is pure code, free to run.
+>
+> **3. Cheap model for most decisions, expensive only for genuinely unclear cases**
+> The brief suggests the opposite (cheap for routine, expensive for escalations). I'd keep that but be very specific: "unclear" means the trend and today contradict each other. Clear losers and clear winners go to Haiku. Ambiguous cases go to Sonnet. Anything truly uncertain (new adset, buyer acted recently, revenue incomplete) goes to a human.
+>
+> **4. The auditor is the most important long-term piece**
+> Every other agent makes decisions in the dark. The Auditor is what turns this from a rule-replacement into a system that actually learns. It runs once a day, checks whether yesterday's decisions were vindicated, and feeds that into tomorrow's context. This is the part no rule engine can do.
+>
+> **5. A real rollback mechanism**
+> R09 (the self-correction rule) was broken all week. The agent needs a genuine undo: if an adset was paused by the agent and shows positive ROI the next day, flag it for re-enable. The rule engine couldn't do this — we can.
+
+> **Task B: Step-by-Step Walkthrough**
+>
+> Here's what each step involves, and my proposed answer for each before we write anything.
+>
+> ---
+>
+> **B1 — Agent Topology (who does what)**
+>
+> Four agents. Here's how I'd describe each to a non-technical person:
+>
+> | Agent | Role | Uses LLM? | Runs when? |
+> |---|---|---|---|
+> | Monitor | The watchman. Scans all adsets every 30 min. Checks numbers against thresholds. Hands off anything that looks interesting. | No | Every 30 min |
+> | Analyst | The decision-maker. Takes the adsets the Monitor flagged, looks at the full picture, and recommends an action. | Yes (Haiku mostly) | When Monitor flags something |
+> | Executor | The gatekeeper. Takes the Analyst's recommendation, checks it against hard rules ("never act on day 1"), and either acts or blocks. Writes everything to a log. | No | After each Analyst decision |
+> | Auditor | The reviewer. Runs once a day. Looks at yesterday's decisions and whether they turned out to be right. Feeds this memory back in. | Optional (Haiku for summary) | Once daily |
+>
+> Key additions from Task A findings:
+>
+> - Monitor also checks: time of day (don't flag for action before 20:00 UTC on day 1 adsets), cooling off period (was this adset acted on in the last 4 hours?), and data completeness (are estimated and FB conversions diverging badly?)
+> - Executor has a hard-coded list of forbidden actions — things the LLM cannot override under any circumstances
+>
+> ---
+>
+> **B2 — Decision Boundaries**
+>
+> Three tiers. The LLM only operates in the middle tier.
+>
+> **Autonomous (agent acts without asking anyone):**
+> - Budget change of ≤ 20% in either direction
+> - Pause an adset with ROI < -0.50 for 3+ consecutive days AND spend > $30 total
+> - Re-enable an adset paused by the agent if next-day ROI was positive
+>
+> **Requires human approval (agent drafts, human clicks confirm):**
+> - Any budget change > 20%
+> - Any action on an adset a human buyer touched in the last 24 hours
+> - "Duplicate winner" — scaling a second adset from the same campaign (risk of cannibalisation)
+>
+> **Forbidden (hard-coded, cannot be overridden by LLM):**
+> - Any action on an adset with fewer than 3 days of spend data
+> - Budget increase > 50% in a single action
+> - Acting on the same adset twice within 4 hours
+> - Any action if the Executor's log shows > 10 autonomous actions in the last hour (kill-switch trigger)
+>
+> ---
+>
+> **B3 — Economics**
+>
+> Let's do the maths for our 6-account dataset, then generalise.
+>
+> ```
+> Adsets active per cycle:  ~167 adsets per account × 6 accounts = ~1,000 total
+> Polling cycles per day:   48 (every 30 min)
+> Estimated % flagged:      ~5% per cycle (Monitor filters out stable adsets)
+> LLM calls per day:        1,000 × 5% × 48 cycles = 2,400 — but most adsets
+>                           are stable most of the day, realistically ~200-400/day
+> Haiku pricing (approx):   $0.25 per million input tokens, $1.25 per million output
+> Tokens per decision:      ~500 input (compressed context) + ~150 output (JSON decision)
+> Cost per decision:        (500 × $0.00000025) + (150 × $0.00000125) = ~$0.0003
+> 400 decisions/day × $0.0003 = ~$0.12/day for 6 accounts
+> ```
+>
+> That's 12 cents a day for the full system. The $30/day budget from the brief is extremely comfortable — you could scale to ~2,500 accounts before hitting it.
+>
+> **When to use which model:**
+>
+> | Situation | Model | Reason |
+> |---|---|---|
+> | Clear loser (ROI < -0.50, 3+ days, no positive trend) | No LLM — pure rule | Don't spend tokens on an obvious answer |
+> | Routine decision (moderate data, no flags) | Haiku | Fast, cheap, sufficient |
+> | Ambiguous (trend contradicts today, or recent human action) | Sonnet | Worth paying for a careful read |
+> | Insufficient data, revenue incomplete | No LLM — escalate to human | LLM can't fix missing data |
+>
+> **Break-even vs. a media buyer:**
+>
+> A junior media buyer in the UK costs roughly £35,000/year. Even at 100× scale (600 accounts), API cost is ~$20/day ($7,300/year). One buyer manages maybe 2-3 accounts. This system handles 600 for less than one person's salary.
+>
+> ---
+>
+> **B4 — Failure Modes**
+>
+> The five most likely ways this system loses money or breaks:
+>
+> | # | Failure | What goes wrong | Guardrail | Kill-switch |
+> |---|---|---|---|---|
+> | 1 | Acting on noise | LLM sees a bad-looking day and pauses a winner | 3-day data gate + trend check before any LLM call | If net autonomous pauses in a day > 20% of active adsets, halt and alert |
+> | 2 | Revenue delay blindness | Agent acts at 6am before the day's revenue arrives | Time-of-day check in Monitor; revenue completeness ratio flag | Flag any decision where fb_conversions/estimated < 0.85 |
+> | 3 | API token failure (like R09) | Agent decisions never actually execute | Executor logs every API call + response; alerts on consecutive failures | After 3 consecutive failures, stop all automated actions and notify human |
+> | 4 | LLM hallucination | Agent invents a budget number or misreads ROI sign | Executor validates: action must be in allowed list, amounts must be within bounds, JSON must parse | Any malformed or out-of-bounds response → action blocked, logged as "parse_error", human notified |
+> | 5 | Cascade on correlated adsets | Multiple adsets in same campaign all look bad simultaneously; agent pauses them all | Executor checks: max 2 pauses per campaign per cycle | If > 30% of a campaign's adsets paused in 24h, freeze campaign and escalate |
+>
+> ---
+>
+> **B5 — The Diagram**
+>
+> Here's the proposed Mermaid diagram:
+>
+> ```mermaid
+> flowchart TD
+>     %% Data sources
+>     PERF[(daily_adset_performance)]
+>     META[(campaign_adset_metadata)]
+>     RULES[(auto_rules + rule_executions)]
+>     BUYERS[(buyer_actions)]
+>     %% Agents
+>     MON["MONITOR AGENT\n(every 30 min, no LLM)\n─────────────────\n• Load latest performance\n• Apply data gates\n• Score each adset\n• Flag if action needed"]
+>     ANA["ANALYST AGENT\n(on demand, LLM)\n─────────────────\n• Build compressed context\n• Run uncertainty detector\n• Call Haiku or Sonnet\n• Return decision + confidence"]
+>     EXE["EXECUTOR AGENT\n(after each decision, no LLM)\n─────────────────\n• Validate against guardrails\n• Block forbidden actions\n• Call Meta API\n• Write to audit log"]
+>     AUD["AUDITOR AGENT\n(once daily, no LLM)\n─────────────────\n• Compare decisions to outcomes\n• Score each decision\n• Update decision memory\n• Summarise day"]
+>     %% Outputs / external
+>     METAAPI[Meta Ads API]
+>     LOG[(audit_log.jsonl)]
+>     MEM[(decision_memory.jsonl)]
+>     HUMAN[Human Review Queue]
+>     %% Flow
+>     PERF --> MON
+>     META --> MON
+>     RULES --> MON
+>     BUYERS --> MON
+>     MON -->|"adsets needing attention"| ANA
+>     MON -->|"clear losers\n(no LLM needed)"| EXE
+>     MEM -->|"past decision history"| ANA
+>     ANA -->|"decision + confidence ≥ 0.5"| EXE
+>     ANA -->|"confidence < 0.3\nor uncertain flags"| HUMAN
+>     EXE -->|"validated action"| METAAPI
+>     EXE -->|"blocked or failed"| HUMAN
+>     EXE --> LOG
+>     LOG --> AUD
+>     PERF --> AUD
+>     AUD --> MEM
+>     AUD -->|"daily summary"| HUMAN
+> ```
+
+>One thing I want your call on before writing: the brief says the Analyst should use "expensive model for escalations." Based on Task A, I'd argue most escalations should go to humans rather than to a more expensive model — because if the data is genuinely ambiguous, a bigger LLM is only marginally better than Haiku, and a human with context is much better. Do you agree, or do you want me to include a Sonnet escalation path?
+
+>👤
+You
+
+Yes your plan looks good. And I agree we do not need an "expensive model". One should be enough and escalations should go to a human (assuming everything else is working correctly and the rules we set up do not send everything for escalation)
+
+>You
+>Explain your decision to use Haiku over something else like Groq which is very cheap to access their LLM and even provides free API keys?
+
+> Haiku is designed for tasks where you need a quick, structured answer and don't need deep reasoning — things like: "given these numbers, what action should I take, and output the result as JSON." That's almost exactly what our Analyst Agent does. It's not writing essays or solving novel logic puzzles. It's reading a compact context block and returning a decision in a consistent format.
+>
+> ---
+>
+> **Why Haiku over Groq?**
+>
+> Groq is a valid question to raise. Here's an honest breakdown:
+>
+> The short answer: the assignment mandates the Anthropic API. Task C says explicitly — "It must actually call an LLM for the judgment layer (Anthropic API; we'll reimburse up to $10)". That's the primary constraint. Using Groq would fail the brief regardless of how good the technical argument is.
+>
+> But even ignoring the brief, here's why Haiku wins for this specific system:
+>
+> | Factor | Haiku | Groq (e.g. Llama 3 / Mixtral) |
+> |---|---|---|
+> | JSON reliability | Very consistent — trained specifically for structured output | Variable — open-source models require more prompt engineering to stay in schema |
+> | System prompt adherence | Strong — guardrails and ROI conventions are respected reliably | Weaker — models sometimes drift from strict instructions, especially across many calls |
+> | Rate limits | Paid tier — predictable and guaranteed | Free tier has strict rate limits that would cap our 200-400 calls/day at scale |
+> | Auditability | Anthropic logs, clear terms of service | Free tier terms can change; less suited for financial decision-making |
+> | Cost at our scale | ~$0.12/day — already essentially free | $0/day but with reliability trade-offs not worth it at this cost difference |
+>
+> The key insight is that when cost is already negligible, reliability becomes the deciding factor. The Executor is validating every decision against guardrails, but we still want the LLM to produce clean, parseable JSON on the first try — every time, across hundreds of calls. Haiku does that consistently. Open-source models via Groq are more unpredictable, especially on strict schema adherence.
+>
+> Where Groq makes sense: if you were running this at 10,000 accounts and Haiku costs were material ($1,200+/day), then Groq or a self-hosted open-source model becomes worth the engineering investment to make it reliable. At our scale, it's solving a problem we don't have.
 
 
----
 
 
