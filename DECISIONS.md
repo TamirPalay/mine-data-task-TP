@@ -421,6 +421,9 @@ Yes your plan looks good. And I agree we do not need an "expensive model". One s
 >
 > Where Groq makes sense: if you were running this at 10,000 accounts and Haiku costs were material ($1,200+/day), then Groq or a self-hosted open-source model becomes worth the engineering investment to make it reliable. At our scale, it's solving a problem we don't have.
 
+>Write a prompt to yourself that will be pasted at the beginning of a new session. The propt should prepare for task C using the session brief and what was decided throughout task B
 
+
+# Task C
 
 
